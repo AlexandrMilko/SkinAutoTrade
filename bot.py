@@ -1,20 +1,57 @@
 import time
+import pickle
+from currency_converter import CurrencyConverter
+from tkinter import Tk
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 
 HOVER_DELAY = 2
+c = CurrencyConverter()
+tk = Tk()
+
 driver = webdriver.Chrome('chromedriver')
+driver.set_window_size(1920, 1080)
 action = ActionChains(driver)
+
+
+class App:
+    def __init__(self):
+        pass
+    def run(self, margin, desired_sell):
+        good_deals = []
+        deals = get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', 3)
+        for d_item in deals:
+            load_cookies(driver, "https://buff.163.com/market/csgo#tab=selling&page_num=1", "cookies.pkl")
+            buff_link = find_on_buff(d_item)
+            buff_items, sell = get_buff163_deals_from(buff_link, 1)
+            if buff_items:
+                print(d_item.link, (buff_items[0].price - d_item.price) >= margin, sell >= desired_sell)
+                if ((buff_items[0].price - d_item.price) >= margin) and (sell >= desired_sell):
+                    deal = [d_item, buff_items[0]]
+                    good_deals.append(deal)
+
+        # print("GOOOD DEALS:")
+        # for deal in good_deals:
+        #     print("======A GOOD DEAL=======")
+        #     deal[0].print_info()
+        #     print()
+        #     deal[1].print_info()
+        #     print("========================")
+        #     print("\n\n\n")
+        driver.quit()
 
 class Item:
     possible_exteriors = ('Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred', 'Not Painted')
     def __init__(self, params_dict):
         self.name = params_dict['name']
         self.skin = params_dict['skin']
-        self.price = params_dict['price']
+        if params_dict['price'][0] == "$": self.price = float(params_dict['price'][1:])
+        elif params_dict['price'][-1] == "Y": self.price = float(c.convert(params_dict['price'].split()[0], "CNY", "USD"))
         self.exterior = params_dict['exterior']
-        self.float_wearing = params_dict['float_wearing']
+        self.float_wearing = float(params_dict['float_wearing'])
+        self.link = params_dict['link']
         self.paint_seed = params_dict['paint_seed']
         self.paint_index = params_dict['paint_index']
 
@@ -23,7 +60,17 @@ class Item:
         for exterior in cls.possible_exteriors:
             if exterior in string: return exterior
 
-def apply_avanmarket_filters(delay=1, category="Knives", price=(60, 180)):
+    def print_info(self):
+        for parameter in dir(self):
+            exec(f"if parameter[0] != \"_\": print(parameter + \":\", self.{parameter})")
+
+def load_cookies(driver, website, cookies_filename):
+    driver.get(website)
+    cookies = pickle.load(open(cookies_filename, "rb"))
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+
+def apply_avanmarket_filters(delay=1.3, category="Knives", price=(60, 180)):
 
     sort_list = driver.find_element(By.CLASS_NAME, 'o-select__currentArrow')
     sort_list.click()
@@ -57,39 +104,92 @@ def close_hint_btn(driver):
     driver.find_element(By.CSS_SELECTOR,
                         'mat-icon.mat-icon.notranslate.c-exchangeTabOnboarding__close.material-icons.mat-icon-no-color').click()
 
-def close_info_btn(driver):
-    driver.find_element(By.CSS_SELECTOR,
-                        'mat-icon.mat-icon.notranslate.ng-tns-c285-50.material-icons.mat-icon-no-color').click()
+def highlight(element, effect_time, color, border):
+    """Highlights (blinks) a Selenium Webdriver element"""
+    driver = element._parent
+    def apply_style(s):
+        driver.execute_script("arguments[0].setAttribute('style', arguments[1]);",
+                              element, s)
+    original_style = element.get_attribute('style')
+    apply_style("border: {0}px solid {1};".format(border, color))
+    time.sleep(effect_time)
+    apply_style(original_style)
 
-def get_avanmarket_deals(website):
+def close_info(driver):
+    div = driver.find_element(By.CSS_SELECTOR, 'div.c-dialogHeader').find_element(By.XPATH, '..')
+    button = div.find_element(By.CSS_SELECTOR, "button.c-dialogHeader__close")
+    highlight(button, 2, "blue", 5)
+    button.click()
+
+def open_info(asset):
+    btn = asset.find_element(By.CSS_SELECTOR, '*')
+    action.move_to_element(btn).perform()
+    btn.click()
+
+def get_dmarket_deals(website, deals_num):
+    items = []
     driver.get("https://dmarket.com/ingame-items/item-list/csgo-skins")
-    apply_avanmarket_filters(delay=1, category="Knives", price=(60, 180))
-
     time.sleep(5)
-    info_div = driver.find_element(By.CSS_SELECTOR, 'div.c-assets__container')
-    assets = info_div.find_elements(By.CSS_SELECTOR, "asset-card-action.ng-star-inserted")
+    apply_avanmarket_filters(delay=1, category="Knives", price=(60, 180))
+    time.sleep(5)
+    deals_div = driver.find_element(By.CSS_SELECTOR, 'div.c-assets__container')
+    assets = deals_div.find_elements(By.CSS_SELECTOR, "asset-card-action.ng-star-inserted")
     time.sleep(3)
     close_hint_btn(driver)
+    counter = 0
     for asset in assets:
-        btn = asset.find_element(By.CSS_SELECTOR, '*')
-        action.move_to_element(btn).perform()
-        btn.click()
-        time.sleep(2)
-        close_info_btn(driver)
-        time.sleep(3)
+        open_info(asset)
+        time.sleep(7)
+        info_div = driver.find_element(By.CSS_SELECTOR, 'div.c-dialog__body.c-dialog__body--preview')
+        highlight(info_div, 2, "blue", 5)
+        params = dict()
+        params['name'], params['skin'] = info_div.find_element(By.TAG_NAME, "h3").text.split('|')
+        params['name'] = params['name'].strip()
+        params['exterior'] = Item.get_exterior_from_string(params['skin'])
+        params['skin'] = params['skin'].split('(')[0].strip()
+        params['price'] = info_div.find_element(By.CSS_SELECTOR, 'price.ng-star-inserted').text
+        params['float_wearing'] = info_div.find_element(By.CSS_SELECTOR, 'strong.o-qualityChart__infoValue').text
 
-    time.sleep(10)
-    driver.quit()
+        link_btn = info_div.find_element(By.CSS_SELECTOR, 'button.mat-focus-indicator.c-shareLink__btn.mat-flat-button.mat-button-base')
+        link_btn.click()
+        copy_btn = info_div.find_element(By.CSS_SELECTOR, 'button.c-copy__cbCopyButton')
+        copy_btn.click()
+        params['link'] = tk.clipboard_get()
 
-def get_buff163_deals_for_skin(website):
+        params['paint_seed'] = None
+        params['paint_index'] = None
+        items.append(Item(params))
+        counter += 1
+        close_info(driver)
+        if counter >= deals_num:
+
+            time.sleep(5)
+            break
+    return items
+
+def find_on_buff(item):
+    driver.get("https://buff.163.com/market/csgo#tab=selling&page_num=1")
+    input = driver.find_element(By.CSS_SELECTOR, 'input.i_Text')
+    input.send_keys(item.name + " | " + item.skin + " (" + item.exterior + ")")
+    time.sleep(5)
+    search = driver.find_element(By.CSS_SELECTOR, 'a#search_btn_csgo')
+    search.click()
+    time.sleep(5)
+    asset_ul = driver.find_element(By.CSS_SELECTOR, 'ul.card_csgo')
+    link = asset_ul.find_element(By.TAG_NAME, 'a').get_attribute("href")
+
+    return link
+
+def get_buff163_deals_from(website, number):
     driver.get(website)
-    knives = []
+    time.sleep(5)
+    items = []
 
     #GETTING PARAMETERS OF ALL SKIN INSTANCES on the website
     items_td = driver.find_elements(By.CLASS_NAME, 'img_td')
     imgs = [item_td.find_element(By.TAG_NAME, 'img') for item_td in items_td]
-    info_dicts = []
     selling_quantity = int(driver.find_element(By.CLASS_NAME, "new-tab").text.split('\n')[0].replace('Sell(', '').replace(')', ''))
+    counter = 0
     for img in imgs:
         info_dict = dict()
         action.move_to_element(img).perform()
@@ -111,11 +211,15 @@ def get_buff163_deals_for_skin(website):
         info_dict['float_wearing'] = float_wearing
         info_dict['paint_seed'] = paint_seed
         info_dict['paint_index'] = paint_index
-        info_dicts.append(info_dict)
+        info_dict['link'] = website
+        items.append(Item(info_dict))
+        counter+=1
+        if counter >= number:
 
-    driver.quit()
+            break
 
-    return info_dicts, selling_quantity
+    return items, selling_quantity
 
 if __name__ == "__main__":
-    get_avanmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins')
+    app = App()
+    app.run(7, 30)

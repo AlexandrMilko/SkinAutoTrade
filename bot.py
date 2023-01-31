@@ -2,10 +2,13 @@ import time
 import pickle
 from currency_converter import CurrencyConverter
 from tkinter import Tk
-import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import NoSuchElementException
+import telethon as tg
+import asyncio
+from numpy import loadtxt
 
 HOVER_DELAY = 2
 c = CurrencyConverter()
@@ -15,31 +18,36 @@ driver = webdriver.Chrome('chromedriver')
 driver.set_window_size(1920, 1080)
 action = ActionChains(driver)
 
+with open("api.txt", "r") as file:
+    lines = file.readlines()
+    PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), int(lines[3].strip())
+    print(PHONE, API_ID, API_HASH, GROUP)
 
 class App:
     def __init__(self):
         pass
-    def run(self, margin, desired_sell):
-        good_deals = []
-        deals = get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', 3)
-        for d_item in deals:
-            load_cookies(driver, "https://buff.163.com/market/csgo#tab=selling&page_num=1", "cookies.pkl")
-            buff_link = find_on_buff(d_item)
-            buff_items, sell = get_buff163_deals_from(buff_link, 1)
-            if buff_items:
-                print(d_item.link, (buff_items[0].price - d_item.price) >= margin, sell >= desired_sell)
-                if ((buff_items[0].price - d_item.price) >= margin) and (sell >= desired_sell):
-                    deal = [d_item, buff_items[0]]
-                    good_deals.append(deal)
-
-        # print("GOOOD DEALS:")
-        # for deal in good_deals:
-        #     print("======A GOOD DEAL=======")
-        #     deal[0].print_info()
-        #     print()
-        #     deal[1].print_info()
-        #     print("========================")
-        #     print("\n\n\n")
+    async def run(self, desired_margin, parsed_filename, deals_num):
+        deals = get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', deals_num)
+        parsed = loadtxt(parsed_filename, dtype="str")
+        print(parsed)
+        async with tg.TelegramClient(PHONE, API_ID, API_HASH) as client:
+            with open(parsed_filename, 'a') as file:
+                for d_item in deals:
+                    if d_item.link not in parsed:
+                        load_cookies(driver, "https://buff.163.com/market/csgo#tab=selling&page_num=1", "cookies.pkl")
+                        buff_link = find_on_buff(d_item)
+                        if buff_link != None: #Sometimes there is no equivalent skin on buff163
+                            buff_items, sell = get_buff163_deals_from(buff_link, 1)
+                            if buff_items:
+                                margin = buff_items[0].price - d_item.price
+                                if (margin > desired_margin):
+                                    await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
+                                                                     f"Float: {d_item.float_wearing}\n"
+                                                                     f"DMARKET Link: {d_item.link}\n"
+                                                                     f"BUFF163 Link: {buff_link}\n"
+                                                                     f"Price margin: {buff_items[0].price - d_item.price}\n"
+                                                                     f"Sell: {sell}")
+                        file.write(d_item.link+"\n")
         driver.quit()
 
 class Item:
@@ -175,8 +183,14 @@ def find_on_buff(item):
     search = driver.find_element(By.CSS_SELECTOR, 'a#search_btn_csgo')
     search.click()
     time.sleep(5)
-    asset_ul = driver.find_element(By.CSS_SELECTOR, 'ul.card_csgo')
-    link = asset_ul.find_element(By.TAG_NAME, 'a').get_attribute("href")
+    try:
+        asset_ul = driver.find_element(By.CSS_SELECTOR, 'ul.card_csgo')
+    except NoSuchElementException as e:
+        print("WARNING: No equivalent skin was found")
+        asset_ul = None
+        link = None
+    finally:
+        link = asset_ul.find_element(By.TAG_NAME, 'a').get_attribute("href")
 
     return link
 
@@ -203,7 +217,7 @@ def get_buff163_deals_from(website, number):
         paint_seed, paint_index, float_wearing = driver.find_element(By.CLASS_NAME, "skin-info").text.split('\n')[:3]
         float_wearing = float(float_wearing.replace('Float: ', ''))
         paint_seed = int(paint_seed.replace('Paint seed: ', ''))
-        paint_index = int(paint_index.replace("Paint index: ", ''))
+        paint_index = int(paint_index.replace("Paint index: ", '').split(' ')[0]) # I use split to remove Phase number. For example, "571 (Phase3)" -> "571"
         info_dict['name'] = name
         info_dict['skin'] = skin
         info_dict['price'] = price
@@ -222,4 +236,4 @@ def get_buff163_deals_from(website, number):
 
 if __name__ == "__main__":
     app = App()
-    app.run(7, 30)
+    asyncio.run(app.run(0, "parsed.txt", 7))

@@ -1,0 +1,4 @@
+CurrencyConverter
+telethon
+selenium
+numpy

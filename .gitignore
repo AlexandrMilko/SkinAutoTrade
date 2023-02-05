@@ -3,3 +3,5 @@ venv/
 cookies.pkl
 *.session
 api.txt
+keys_bot/dmarket/
+__pycache__/

@@ -15,22 +15,23 @@ c = CurrencyConverter()
 tk = Tk()
 
 DMARKET_KEY_VALUE = 1.85
-BUFF163_KEY_VALUE = 12
+BUFF163_KEY_VALUE = 12.3
 BUFF163_COMMISSION_PERCENTAGE = 0.025
 
 PREFERRED_FAMILY = ["bright water", "ultraviolet", "tiger tooth", "stained", "urban masked",
                     "safari mesh", "damascus steel", "autotronic", "rust coat", "vanilla",
                     "slaughter", "lore"]
 
-PREFERRED_CATEGORY = ["knife", "rifle", "sniper rifle", "pistol", "smg", "machinegun", "shotgun"]
+PREFERRED_CATEGORY = ["knife", "rifle", "sniper rifle", "pistol", "smg"]
 
 filter_arguments = {"game": "csgo-skins",
-                    "is_stattrack": "not_stattrak_tm",
-                    "starting_price": "20",
-                    "ending_price": "81.4",
+                    "is_stattrack": "all",
+                    "starting_price": "10",
+                    "ending_price": "20",
                     "category": PREFERRED_CATEGORY,
                     "family": [],
-                    "sort_by": "Best Deals"}
+                    "is_souvenir": "not_souvenir",
+                    "sort_by": "Best Discount"}
 
 driver = webdriver.Chrome('chromedriver')
 driver.set_window_size(1920, 1080)
@@ -43,6 +44,10 @@ with open("api.txt", "r") as file:
 
 """"Function takes value of the item and its currency and 
 converts it to the equivalent number of keys (with decimal point)"""
+
+def calculate_income_in_percentages(buff_value_in_keys, income):
+    return income / (buff_value_in_keys * BUFF163_KEY_VALUE) * 100
+
 def convert_price_to_keys(value, currency):
     if (currency == "CNY"):
         return (value - value * BUFF163_COMMISSION_PERCENTAGE) / BUFF163_KEY_VALUE
@@ -56,11 +61,20 @@ def convert_keys_to_price(keys, currency):
 """If you want to calculate your profit, you shall use these functions
 Consider your optimal currency for this"""
 def compare_prices_in_yuans(buff_value_in_keys, dmarket_value_in_keys):
-    return f"{(buff_value_in_keys - dmarket_value_in_keys) * BUFF163_KEY_VALUE}¥"
+    return (buff_value_in_keys - dmarket_value_in_keys) * BUFF163_KEY_VALUE
 
 def compare_prices_in_dollars(buff_value_in_keys, dmarket_value_in_keys):
-    return f"{(buff_value_in_keys - dmarket_value_in_keys) * BUFF163_KEY_VALUE}$"
+    return (buff_value_in_keys - dmarket_value_in_keys) * DMARKET_KEY_VALUE
 
+def check_income_satisfaction(buff_value_in_keys, dmarket_value_in_keys, income_type, desired_income):
+    if (income_type == "%"):
+        return (buff_value_in_keys / dmarket_value_in_keys * 100) >= desired_income
+    elif (income_type == ""):
+        return (buff_value_in_keys - dmarket_value_in_keys) >= desired_income
+    elif (income_type == "$"):
+        return compare_prices_in_dollars(buff_value_in_keys, dmarket_value_in_keys) >= desired_income
+    else:
+        return compare_prices_in_yuans(buff_value_in_keys, dmarket_value_in_keys) >= desired_income
 class App:
     def __init__(self):
         pass
@@ -77,18 +91,20 @@ class App:
                         if buff_link != None: #Sometimes there is no equivalent skin on buff163
                             buff_items, sell = get_buff163_deals_from(buff_link, 1)
                             if buff_items:
-                                margin = (buff_items[0].price_in_keys - d_item.price_in_keys) * DMARKET_KEY_VALUE
-                                if (margin > desired_margin):
-                                    await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
-                                                                     f"Price on DMarket: {convert_keys_to_price(d_item.price_in_keys, 'USD')}\n"
-                                                                     f"Float: {d_item.float_wearing}\n"
-                                                                     f"Sales for past month: {sell}\n"
-                                                                     f"DMARKET Link: [URL]({d_item.link})\n"
-                                                                     f"BUFF163 Link: [URL]({buff_link})\n"
-                                                                     f"Income: {compare_prices_in_yuans(buff_items[0].price_in_keys, d_item.price_in_keys)}\n"
-                                                                     "————————————————————————————\n"
-                                                                     f"Note that this income was calculated considering that we buy\n"
-                                                                     f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
+                                    yuans_income = compare_prices_in_yuans(buff_items[0].price_in_keys, d_item.price_in_keys)
+                                    dollars_income = compare_prices_in_dollars(buff_items[0].price_in_keys, d_item.price_in_keys)
+                                    if yuans_income > 0:
+                                        await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
+                                                                         f"Price on DMarket: {convert_keys_to_price(d_item.price_in_keys, 'USD')}$\n"
+                                                                         f"Price on BUFF163: {convert_keys_to_price(buff_items[0].price_in_keys, 'CNY')}¥\n"
+                                                                         f"Float: {d_item.float_wearing}\n"
+                                                                         f"Sales for past month: {sell}\n"
+                                                                         f"[DMARKET Link]({d_item.link})\n"
+                                                                         f"[BUFF163 Link]({buff_link})\n"
+                                                                         f"Income: {'{:10.2f}'.format(yuans_income)}¥ | {'{:10.2f}'.format(dollars_income)}$ | {'{:10.1f}'.format(calculate_income_in_percentages(buff_items[0].price_in_keys, yuans_income))}%\n"
+                                                                         "\n"
+                                                                         f"Note that this income was calculated considering that we buy\n"
+                                                                         f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
                         file.write(d_item.link+"\n")
         driver.quit()
 
@@ -140,7 +156,10 @@ def setup_market_search(delay=1.3, args=filter_arguments):
     family_string_url = convert_list_to_market_query(args["family"], "family")
     category_string_url = convert_list_to_market_query(args["category"], "category")
 
-    baseUrl = f"https://dmarket.com/ingame-items/item-list/{args['game']}?{category_string_url}&{family_string_url}&category_0={args['is_stattrack']}&price-to={args['ending_price']}&price-from={args['starting_price']}"
+
+    baseUrl = f"https://dmarket.com/ingame-items/item-list/{args['game']}?{category_string_url}&{family_string_url}&category_0={args['is_stattrack']}&category_1={args['is_souvenir']}&price-to={args['ending_price']}&price-from={args['starting_price']}"
+
+    print(baseUrl)
 
     driver.get(baseUrl)
     time.sleep(delay)
@@ -221,31 +240,36 @@ def get_dmarket_deals(website, deals_num):
 def find_on_buff(item):
     driver.get("https://buff.163.com/market/csgo#tab=selling&page_num=1")
     input = driver.find_element(By.CSS_SELECTOR, 'input.i_Text')
-    input.send_keys(item.name + " | " + item.skin + " (" + item.exterior + ")")
+    item_full_name = item.name + " | " + item.skin + " (" + item.exterior + ")"
+    input.send_keys(item_full_name)
     time.sleep(5)
     search = driver.find_element(By.CSS_SELECTOR, 'a#search_btn_csgo')
-    search.click()
+    time.sleep(3)
+    #item_btn = driver.find_element_by_xpath(f"// li[(text()=\'{item_full_name}\')]")
+    item_btn = driver.find_element(By.XPATH, f"//li[text()=\'{item_full_name}\']")
+    time.sleep(5)
+    item_btn.click()
+    link = driver.current_url
+    print("Item link: " + link)
     time.sleep(5)
     try:
-        asset_ul = driver.find_element(By.CSS_SELECTOR, 'ul.card_csgo')
+        item_container = driver.find_element(By.CLASS_NAME, 'img_td')
     except NoSuchElementException as e:
         print("WARNING: No equivalent skin was found")
-        asset_ul = None
-        link = None
+        item_container = None
+        return None
     finally:
-        link = asset_ul.find_element(By.TAG_NAME, 'a').get_attribute("href")
-
-    return link
+        return link
 
 def get_buff163_deals_from(website, number):
-    driver.get(website)
-    time.sleep(5)
+    # driver.get(website)
+    # time.sleep(5)
     items = []
 
     #GETTING PARAMETERS OF ALL SKIN INSTANCES on the website
     items_td = driver.find_elements(By.CLASS_NAME, 'img_td')
     imgs = [item_td.find_element(By.TAG_NAME, 'img') for item_td in items_td]
-    selling_quantity = int(driver.find_element(By.CLASS_NAME, "new-tab").text.split('\n')[0].replace('Sell(', '').replace(')', ''))
+    selling_quantity = int(driver.find_element(By.CLASS_NAME, "new-tab").text.split('\n')[0].replace('Sell(', '').replace(')', '').replace("+", ""))
     counter = 0
     for img in imgs:
         info_dict = dict()
@@ -280,4 +304,4 @@ def get_buff163_deals_from(website, number):
 
 if __name__ == "__main__":
     app = App()
-    asyncio.run(app.run(3, "parsed.txt", 10))
+    asyncio.run(app.run("5 %", "parsed.txt", 10))

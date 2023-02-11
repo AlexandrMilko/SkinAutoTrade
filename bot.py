@@ -39,7 +39,7 @@ action = ActionChains(driver)
 
 with open("api.txt", "r") as file:
     lines = file.readlines()
-    PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), int(lines[3].strip())
+    PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), lines[3].strip() # TODO: add proper working with both: ids and usernames
     print(PHONE, API_ID, API_HASH, GROUP)
 
 """"Function takes value of the item and its currency and 

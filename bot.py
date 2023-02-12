@@ -86,6 +86,8 @@ class App:
                         buff_link = find_on_buff(d_item)
                         if buff_link != None: #Sometimes there is no equivalent skin on buff163
                             buff_items, sell = get_buff163_deals_from(buff_link, 1)
+                            if buff_items != None: #Sometimes there is no equivalent skin on buff163
+                                buff_items, sell = get_buff163_deals_from(buff_link, 1)
                                 if buff_items:
                                         yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
                                         dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)

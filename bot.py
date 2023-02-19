@@ -8,13 +8,22 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import NoSuchElementException
 import telethon as tg
 import asyncio
+from keys_bot.keys_bot import send_key_price
+import os
 from numpy import loadtxt
+from multiprocessing import Process
+
+driver = webdriver.Chrome('chromedriver')
+driver.set_window_size(1920, 1080)
+action = ActionChains(driver)
 
 HOVER_DELAY = 2
 c = CurrencyConverter()
 tk = Tk()
 
-DMARKET_KEY_VALUE = 1.85
+DMARKET_KEY_VALUE = 1.8
+
+#DMARKET_KEY_VALUE = get_key_price_dmarket(driver)
 BUFF163_KEY_VALUE = 12.3
 BUFF163_COMMISSION_PERCENTAGE = 0.025
 
@@ -32,9 +41,6 @@ filter_arguments = {"game": "csgo-skins",
                     "family": [],
                     "sort_by": "Best Deals"}
 
-driver = webdriver.Chrome('chromedriver')
-driver.set_window_size(1920, 1080)
-action = ActionChains(driver)
 
 with open("api.txt", "r") as file:
     lines = file.readlines()
@@ -86,26 +92,24 @@ class App:
                         buff_link = find_on_buff(d_item)
                         if buff_link != None: #Sometimes there is no equivalent skin on buff163
                             buff_items, sell = get_buff163_deals_from(buff_link, 1)
-                            if buff_items != None: #Sometimes there is no equivalent skin on buff163
-                                buff_items, sell = get_buff163_deals_from(buff_link, 1)
-                                if buff_items:
-                                        yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
-                                        dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)
-                                        percentage_income = calculate_income_in_percentages(buff_items[0].price, yuans_income)
-                                        if yuans_income > 0:
-                                            await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
-                                                                                 f"Price on DMarket: {d_item.price}$\n"
-                                                                                 f"Price on BUFF163: {buff_items[0].price}¥\n"
-                                                                                 f"Float: {d_item.float_wearing}\n"
-                                                                                 f"Sales for past month: {sell}\n"
-                                                                                 f"[DMARKET Link]({d_item.link})\n"
-                                                                                 f"[BUFF163 Link]({buff_link})\n"
-                                                                                 f"Income: {'{:10.2f}'.format(yuans_income)}¥ | {'{:10.2f}'.format(dollars_income)}$ | {'{:10.1f}'.format(percentage_income)}%\n"
-                                                                                 "\n"
-                                                                                 f"Note that this income was calculated considering that we buy\n"
-                                                                                 f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
-                        file.write(d_item.link+"\n")
-        driver.quit()
+                            if buff_items:
+                                yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
+                                dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)
+                                percentage_income = calculate_income_in_percentages(buff_items[0].price, yuans_income)
+                                if yuans_income > 0:
+                                    await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
+                                                                     f"Price on DMarket: {d_item.price}$\n"
+                                                                     f"Price on BUFF163: {buff_items[0].price}¥\n"
+                                                                     f"Float: {d_item.float_wearing}\n"
+                                                                     f"Sales for past month: {sell}\n"
+                                                                     f"[DMARKET Link]({d_item.link})\n"
+                                                                     f"[BUFF163 Link]({buff_link})\n"
+                                                                     f"Income: {'{:10.2f}'.format(yuans_income)}¥ | {'{:10.2f}'.format(dollars_income)}$ | {'{:10.1f}'.format(percentage_income)}%\n"
+                                                                     "\n"
+                                                                     f"Note that this income was calculated considering that we buy\n"
+                                                                     f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
+                    file.write(d_item.link+"\n")
+    driver.quit()
 
 class Item:
     possible_exteriors = ('Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred', 'Not Painted')
@@ -116,6 +120,7 @@ class Item:
             self.price = float(params_dict['price'][1:])
         elif params_dict['price'][-1] == "Y":
             self.price = float(params_dict['price'].split()[0])
+            print("125 | self price: ", self.price)
         self.exterior = params_dict['exterior']
         self.float_wearing = float(params_dict['float_wearing'])
         self.link = params_dict['link']
@@ -158,9 +163,13 @@ def setup_market_search(delay=1.3, args=filter_arguments):
     baseUrl = f"https://dmarket.com/ingame-items/item-list/{args['game']}?{category_string_url}&{family_string_url}&category_0={args['is_stattrack']}&price-to={args['ending_price']}&price-from={args['starting_price']}"
 
     driver.get(baseUrl)
+    time.sleep(3)
+
+    popup_button = driver.find_element(By.CSS_SELECTOR, "#onesignal-slidedown-cancel-button")
+    popup_button.click()
     time.sleep(delay)
 
-    sort_list = driver.find_element(By.CLASS_NAME, 'o-select__currentArrow')
+    sort_list = driver.find_element(By.CLASS_NAME, 'o-select__current')
     sort_list.click()
     time.sleep(delay)
 
@@ -259,13 +268,16 @@ def find_on_buff(item):
 
 def get_buff163_deals_from(website, number):
     items = []
-
-    #GETTING PARAMETERS OF ALL SKIN INSTANCES on the website
+    #GETTING PARAMETERS OF ALL SKIN INSTANCES on the websit
     items_td = driver.find_elements(By.CLASS_NAME, 'img_td')
     imgs = [item_td.find_element(By.TAG_NAME, 'img') for item_td in items_td]
     selling_quantity = int(driver.find_element(By.CLASS_NAME, "new-tab").text.split('\n')[0].replace('Sell(', '').replace(')', '').replace("+", ""))
     counter = 0
     for img in imgs:
+        counter += 1
+        if counter > number:
+            break
+
         info_dict = dict()
         action.move_to_element(img).perform()
         time.sleep(HOVER_DELAY)
@@ -274,7 +286,8 @@ def get_buff163_deals_from(website, number):
         name = name.strip()
         exterior = Item.get_exterior_from_string(skin)
         skin = skin.split('(')[0].strip()
-        price = div_name_price.find_element(By.TAG_NAME, "big").text + " Y"
+        price = div_name_price.find_element(By.CSS_SELECTOR, "strong.f_Strong").text.split()[1] + " Y"
+        print("283 | get buff163 price: " + price)
         paint_seed, paint_index, float_wearing = driver.find_element(By.CLASS_NAME, "skin-info").text.split('\n')[:3]
         float_wearing = float(float_wearing.replace('Float: ', ''))
         paint_seed = int(paint_seed.replace('Paint seed: ', ''))
@@ -288,14 +301,14 @@ def get_buff163_deals_from(website, number):
         info_dict['paint_index'] = paint_index
         info_dict['link'] = website
         items.append(Item(info_dict))
-        counter+=1
-        if counter >= number:
-
-            break
 
     return items, selling_quantity
 
+async def main():
+    app = App()
+    await asyncio.gather(app.run(3, "parsed.txt", 1), send_key_price())
 
 if __name__ == "__main__":
-    app = App()
-    asyncio.run(app.run(3, "parsed.txt", 10))
+    asyncio.run(main())
+    # app = App()
+    # asyncio.run(app.run(3, "parsed.txt", 1))

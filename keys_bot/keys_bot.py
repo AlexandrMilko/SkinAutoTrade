@@ -7,7 +7,6 @@ import sys
 import asyncio
 import os
 
-
 with open("api.txt", "r") as file:
     lines = file.readlines()
     PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), lines[3].strip()
@@ -24,6 +23,7 @@ driver = webdriver.Chrome('chromedriver', options=options)
 driver.set_window_size(1920, 1080)
 
 PRICE_DELAY = 20
+PRICE_CHECK_ITERATIONS = 1
 
 def get_key_price_dmarket(driver=driver):
     link = "https://dmarket.com/ingame-items/item-list/tf2-skins?exchangeTab=exchange"
@@ -34,7 +34,7 @@ def get_key_price_dmarket(driver=driver):
     print(price)
     return price
 
-async def send_key_price(delay=PRICE_DELAY, last_price=None, ):
+async def send_key_price(delay=PRICE_DELAY, last_price=None):
     price = get_key_price_dmarket()
     if (last_price != price):
         async with tg.TelegramClient(PHONE, API_ID, API_HASH) as client:

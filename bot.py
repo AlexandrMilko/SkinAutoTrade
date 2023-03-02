@@ -12,6 +12,10 @@ from keys_bot.keys_bot import send_key_price
 import os
 from numpy import loadtxt
 from multiprocessing import Process
+from selenium.webdriver.firefox.options import Options
+
+options = Options()
+options.add_argument('--disable-blink-features=AutomationControlled')
 
 driver = webdriver.Chrome('chromedriver')
 driver.set_window_size(1920, 1080)
@@ -21,11 +25,12 @@ HOVER_DELAY = 2
 c = CurrencyConverter()
 tk = Tk()
 
-DMARKET_KEY_VALUE = 1.8
-
 #DMARKET_KEY_VALUE = get_key_price_dmarket(driver)
+DMARKET_KEY_VALUE = 1.8
 BUFF163_KEY_VALUE = 12.3
 BUFF163_COMMISSION_PERCENTAGE = 0.025
+
+APP_ITERATIONS = 1000
 
 PREFERRED_FAMILY = ["bright water", "ultraviolet", "tiger tooth", "stained", "urban masked",
                     "safari mesh", "damascus steel", "autotronic", "rust coat", "vanilla",
@@ -35,8 +40,8 @@ PREFERRED_CATEGORY = ["knife", "rifle", "sniper rifle", "pistol", "smg", "machin
 
 filter_arguments = {"game": "csgo-skins",
                     "is_stattrack": "not_stattrak_tm",
-                    "starting_price": "2",
-                    "ending_price": "5.22",
+                    "starting_price": "25",
+                    "ending_price": "40",
                     "category": PREFERRED_CATEGORY,
                     "family": [],
                     "sort_by": "Best Deals"}
@@ -45,7 +50,6 @@ filter_arguments = {"game": "csgo-skins",
 with open("api.txt", "r") as file:
     lines = file.readlines()
     PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), lines[3].strip()
-    print(PHONE, API_ID, API_HASH, GROUP)
 
 """"Function takes value of the item and its currency and 
 converts it to the equivalent number of keys (with decimal point)"""
@@ -83,7 +87,6 @@ class App:
     async def run(self, desired_margin, parsed_filename, deals_num):
         deals = get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', deals_num)
         parsed = loadtxt(parsed_filename, dtype="str")
-        print(parsed)
         async with tg.TelegramClient(PHONE, API_ID, API_HASH) as client:
             with open(parsed_filename, 'a') as file:
                 for d_item in deals:
@@ -96,8 +99,8 @@ class App:
                                 yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
                                 dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)
                                 percentage_income = calculate_income_in_percentages(buff_items[0].price, yuans_income)
-                                if yuans_income > 0:
-                                    await client.send_message(GROUP, f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
+                                if yuans_income:
+                                    await client.send_message(GROUP, message=f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
                                                                      f"Price on DMarket: {d_item.price}$\n"
                                                                      f"Price on BUFF163: {buff_items[0].price}¥\n"
                                                                      f"Float: {d_item.float_wearing}\n"
@@ -109,7 +112,7 @@ class App:
                                                                      f"Note that this income was calculated considering that we buy\n"
                                                                      f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
                     file.write(d_item.link+"\n")
-    driver.quit()
+        driver.quit()
 
 class Item:
     possible_exteriors = ('Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred', 'Not Painted')
@@ -120,7 +123,6 @@ class Item:
             self.price = float(params_dict['price'][1:])
         elif params_dict['price'][-1] == "Y":
             self.price = float(params_dict['price'].split()[0])
-            print("125 | self price: ", self.price)
         self.exterior = params_dict['exterior']
         self.float_wearing = float(params_dict['float_wearing'])
         self.link = params_dict['link']
@@ -162,6 +164,7 @@ def setup_market_search(delay=1.3, args=filter_arguments):
 
     baseUrl = f"https://dmarket.com/ingame-items/item-list/{args['game']}?{category_string_url}&{family_string_url}&category_0={args['is_stattrack']}&price-to={args['ending_price']}&price-from={args['starting_price']}"
 
+    print(baseUrl)
     driver.get(baseUrl)
     time.sleep(3)
 
@@ -255,7 +258,6 @@ def find_on_buff(item):
     time.sleep(5)
     item_btn.click()
     link = driver.current_url
-    print("Item link: " + link)
     time.sleep(5)
     try:
         item_container = driver.find_element(By.CLASS_NAME, 'img_td')
@@ -287,7 +289,6 @@ def get_buff163_deals_from(website, number):
         exterior = Item.get_exterior_from_string(skin)
         skin = skin.split('(')[0].strip()
         price = div_name_price.find_element(By.CSS_SELECTOR, "strong.f_Strong").text.split()[1] + " Y"
-        print("283 | get buff163 price: " + price)
         paint_seed, paint_index, float_wearing = driver.find_element(By.CLASS_NAME, "skin-info").text.split('\n')[:3]
         float_wearing = float(float_wearing.replace('Float: ', ''))
         paint_seed = int(paint_seed.replace('Paint seed: ', ''))
@@ -306,9 +307,11 @@ def get_buff163_deals_from(website, number):
 
 async def main():
     app = App()
-    await asyncio.gather(app.run(3, "parsed.txt", 1), send_key_price())
+    for i in range(APP_ITERATIONS):
+        await asyncio.gather(app.run(3, "parsed.txt", 1), send_key_price())
+
 
 if __name__ == "__main__":
     asyncio.run(main())
-    # app = App()
-    # asyncio.run(app.run(3, "parsed.txt", 1))
+    #app = App()
+    #asyncio.run(app.run(3, "parsed.txt", 1))

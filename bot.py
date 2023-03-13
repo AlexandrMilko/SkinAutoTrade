@@ -26,8 +26,8 @@ c = CurrencyConverter()
 tk = Tk()
 
 #DMARKET_KEY_VALUE = get_key_price_dmarket(driver)
-DMARKET_KEY_VALUE = 1.8
-BUFF163_KEY_VALUE = 12.3
+DMARKET_KEY_VALUE = 1.78
+BUFF163_KEY_VALUE = 12.76
 BUFF163_COMMISSION_PERCENTAGE = 0.025
 
 APP_ITERATIONS = 1000
@@ -36,20 +36,22 @@ PREFERRED_FAMILY = ["bright water", "ultraviolet", "tiger tooth", "stained", "ur
                     "safari mesh", "damascus steel", "autotronic", "rust coat", "vanilla",
                     "slaughter", "lore"]
 
+# PREFERRED_CATEGORY = ["knife", "rifle", "sniper rifle", "pistol", "smg", "machinegun", "shotgun"]
 PREFERRED_CATEGORY = ["knife", "rifle", "sniper rifle", "pistol", "smg", "machinegun", "shotgun"]
 
 filter_arguments = {"game": "csgo-skins",
                     "is_stattrack": "not_stattrak_tm",
-                    "starting_price": "25",
-                    "ending_price": "40",
+                    "starting_price": "0",
+                    "ending_price": "200",
                     "category": PREFERRED_CATEGORY,
                     "family": [],
-                    "sort_by": "Best Deals"}
+                    "sort_by": "Newest First"}
 
 
 with open("api.txt", "r") as file:
     lines = file.readlines()
     PHONE, API_ID, API_HASH, GROUP = lines[0].strip(), int(lines[1].strip()), lines[2].strip(), lines[3].strip()
+
 
 """"Function takes value of the item and its currency and 
 converts it to the equivalent number of keys (with decimal point)"""
@@ -85,33 +87,47 @@ class App:
     def __init__(self):
         pass
     async def run(self, desired_margin, parsed_filename, deals_num):
-        deals = get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', deals_num)
-        parsed = loadtxt(parsed_filename, dtype="str")
-        async with tg.TelegramClient(PHONE, API_ID, API_HASH) as client:
-            with open(parsed_filename, 'a') as file:
-                for d_item in deals:
-                    if d_item.link not in parsed:
-                        load_cookies(driver, "https://buff.163.com/market/csgo#tab=selling&page_num=1", "cookies.pkl")
-                        buff_link = find_on_buff(d_item)
-                        if buff_link != None: #Sometimes there is no equivalent skin on buff163
-                            buff_items, sell = get_buff163_deals_from(buff_link, 1)
-                            if buff_items:
-                                yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
-                                dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)
-                                percentage_income = calculate_income_in_percentages(buff_items[0].price, yuans_income)
-                                if yuans_income:
-                                    await client.send_message(GROUP, message=f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
-                                                                     f"Price on DMarket: {d_item.price}$\n"
-                                                                     f"Price on BUFF163: {buff_items[0].price}¥\n"
-                                                                     f"Float: {d_item.float_wearing}\n"
-                                                                     f"Sales for past month: {sell}\n"
-                                                                     f"[DMARKET Link]({d_item.link})\n"
-                                                                     f"[BUFF163 Link]({buff_link})\n"
-                                                                     f"Income: {'{:10.2f}'.format(yuans_income)}¥ | {'{:10.2f}'.format(dollars_income)}$ | {'{:10.1f}'.format(percentage_income)}%\n"
-                                                                     "\n"
-                                                                     f"Note that this income was calculated considering that we buy\n"
-                                                                     f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
-                    file.write(d_item.link+"\n")
+        for i in range(APP_ITERATIONS):
+            deals = await get_dmarket_deals('https://dmarket.com/ingame-items/item-list/csgo-skins', deals_num)
+            parsed = loadtxt(parsed_filename, dtype="str")
+            async with tg.TelegramClient(PHONE, API_ID, API_HASH) as TG_CLIENT:
+                with open(parsed_filename, 'a') as file:
+                    for d_item in deals:
+                        if d_item.link not in parsed:
+                            load_cookies(driver, "https://buff.163.com/market/csgo#tab=selling&page_num=1", "cookies.pkl")
+                            buff_link = find_on_buff(d_item)
+                            if buff_link != None: #Sometimes there is no equivalent skin on buff163
+                                buff_items, sell = get_buff163_deals_from(buff_link, 1)
+                                if buff_items:
+                                    yuans_income = compare_prices_in_yuans(buff_items[0].price, d_item.price)
+                                    dollars_income = compare_prices_in_dollars(buff_items[0].price, d_item.price)
+                                    percentage_income = calculate_income_in_percentages(buff_items[0].price, yuans_income)
+
+                                    #This price is calculated without considering the key prices ratio and commission
+                                    dollars_price_diff = c.convert(buff_items[0].price, "CNY", "USD") - d_item.price
+                                    yuans_price_diff = buff_items[0].price - c.convert(d_item.price, "USD", "CNY")
+                                    percentage_diff = ((c.convert(buff_items[0].price, "CNY", "USD") / d_item.price) - 1) * 100
+
+                                    if yuans_income:
+                                        print("IN YOUANS INCOME")
+                                        await TG_CLIENT.connect()
+                                        print("SENDING")
+                                        await TG_CLIENT.send_message(GROUP, message=f"{d_item.name} | {d_item.skin} ({d_item.exterior})\n"
+                                                                         f"Price on DMarket: {d_item.price}$\n"
+                                                                         f"Price on BUFF163: {buff_items[0].price}¥\n"
+                                                                         f"Float: {d_item.float_wearing}\n"
+                                                                         f"Sales for past month: {sell}\n"
+                                                                         f"[DMARKET Link]({d_item.link})\n"
+                                                                         f"[BUFF163 Link]({buff_link})\n"
+                                                                         f"Income: {'{:10.2f}'.format(yuans_income)}¥ | {'{:10.2f}'.format(dollars_income)}$ | {'{:10.1f}'.format(percentage_income)}%\n"
+                                                                         "\n"
+                                                                         f"Price Difference: {'{:10.2f}'.format(yuans_price_diff)}¥ | {'{:10.2f}'.format(dollars_price_diff)}$ | {'{:10.1f}'.format(percentage_diff)}%\n"
+                                                                         "\n"
+                                                                         f"Note that this income was calculated considering that we buy\n"
+                                                                         f"keys for {BUFF163_KEY_VALUE}¥ each and sell it for {DMARKET_KEY_VALUE}$ each on dmarket\n")
+                                        await TG_CLIENT.disconnect()
+                            file.write(d_item.link+"\n")
+            await asyncio.sleep(30)
         driver.quit()
 
 class Item:
@@ -152,13 +168,13 @@ def convert_list_to_market_query(list, type):
         query = query + name.replace(" ", "%20") + ","
     if (type == "family"):
         return f"family={query}"
+    elif (len(list) >= 1 and type=="category"):
+        return f"categoryPath={query}"
     elif (len(list) == 1):
         return query
-    elif (len(list) > 1 and type=="category"):
-        return f"categoryPath={query}"
     return query
 
-def setup_market_search(delay=1.3, args=filter_arguments):
+async def setup_market_search(delay=1.3, args=filter_arguments):
     family_string_url = convert_list_to_market_query(args["family"], "family")
     category_string_url = convert_list_to_market_query(args["category"], "category")
 
@@ -166,19 +182,31 @@ def setup_market_search(delay=1.3, args=filter_arguments):
 
     print(baseUrl)
     driver.get(baseUrl)
-    time.sleep(3)
+    await asyncio.sleep(5)
 
-    popup_button = driver.find_element(By.CSS_SELECTOR, "#onesignal-slidedown-cancel-button")
-    popup_button.click()
-    time.sleep(delay)
+    #THERE IS AN INTRUSIVE POPUP WHICH MAY OVERLAP SOME CONTENT. THUS, WE CLOSE IT AUTOMATICALLY
+    try:
+        popup_button = driver.find_element(By.CSS_SELECTOR, "#onesignal-slidedown-cancel-button")
+        popup_button.click()
+        await asyncio.sleep(delay)
+    except:
+        print("WARNING: no #onesignal-slidedown-cancel-button was seen")
+        print("INFO: trying one more time to close it.")
+        await asyncio.sleep(15)
+        try:
+            popup_button = driver.find_element(By.CSS_SELECTOR, "#onesignal-slidedown-cancel-button")
+            popup_button.click()
+            await asyncio.sleep(delay)
+        except:
+            print("WARNING: #onesignal-slidedown-cancel-button was seen. I am not closing it again")
 
     sort_list = driver.find_element(By.CLASS_NAME, 'o-select__current')
     sort_list.click()
-    time.sleep(delay)
+    await asyncio.sleep(delay)
 
     sort_btn = driver.find_element(By.XPATH, f"//*[contains(text(), \'{args['sort_by']}\')]")
     sort_btn.click()
-    time.sleep(delay)
+    await asyncio.sleep(delay)
 
 def close_hint_btn(driver):
     driver.find_element(By.CSS_SELECTOR,
@@ -206,18 +234,21 @@ def open_info(asset):
     action.move_to_element(btn).perform()
     btn.click()
 
-def get_dmarket_deals(website, deals_num):
+async def get_dmarket_deals(website, deals_num):
     items = []
-    setup_market_search()
-    time.sleep(5)
+    await setup_market_search()
+    await asyncio.sleep(5)
     deals_div = driver.find_element(By.CSS_SELECTOR, 'div.c-assets__container')
     assets = deals_div.find_elements(By.CSS_SELECTOR, "asset-card-action.ng-star-inserted")
-    time.sleep(3)
-    close_hint_btn(driver)
+    await asyncio.sleep(3)
+    try:
+        close_hint_btn(driver)
+    except:
+        print("WARNING: no hint button was closed")
     counter = 0
     for asset in assets:
         open_info(asset)
-        time.sleep(7)
+        await asyncio.sleep(7)
         info_div = driver.find_element(By.CSS_SELECTOR, 'div.c-dialog__body.c-dialog__body--preview')
         highlight(info_div, 2, "blue", 5)
         params = dict()
@@ -241,7 +272,7 @@ def get_dmarket_deals(website, deals_num):
         close_info(driver)
         if counter >= deals_num:
 
-            time.sleep(5)
+            await asyncio.sleep(5)
             break
     return items
 
@@ -307,8 +338,7 @@ def get_buff163_deals_from(website, number):
 
 async def main():
     app = App()
-    for i in range(APP_ITERATIONS):
-        await asyncio.gather(app.run(3, "parsed.txt", 1), send_key_price())
+    await asyncio.gather(app.run(3, "parsed.txt", 10), send_key_price())
 
 
 if __name__ == "__main__":

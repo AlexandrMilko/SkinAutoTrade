@@ -7,3 +7,5 @@ keys_bot/dmarket/
 __pycache__/
 dmarket/
 keys_bot_api.txt
+keys_bot/dmarket_cookies.pkl
+keys_bot/steam_cookies.pkl
